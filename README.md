@@ -3,6 +3,7 @@
 Accept by KDD 2026.
 
 arXiv: [https://arxiv.org/abs/2410.05814](https://arxiv.org/abs/2410.05814)
+
 Github: [https://github.com/Chrisqcwx/lora_defense](https://github.com/Chrisqcwx/lora_defense)
 
 ## Usage
