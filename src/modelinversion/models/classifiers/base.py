@@ -84,6 +84,10 @@ class BaseImageModel(ModelMixin):
         self._inner_hooks = {}
 
     @property
+    def name(self):
+        return self.__class__.__name__
+
+    @property
     def resolution(self):
         return self._resolution
 
@@ -178,13 +182,19 @@ class BaseImageClassifier(BaseImageModel):
         #     self.register_hook_for_forward(HOOK_NAME_FEATURE, hook=hook)
         return super().forward(image, *args, **kwargs)
 
+
 def remove_all_forward_hooks(module: nn.Module):
     module._forward_hooks.clear()
     for child in module.children():
         remove_all_forward_hooks(child)
 
+
 def _operate_fc_impl(
-    module: nn.Module, reset_num_classes: int = None, visit_fc_fn: Callable = None, visit_path = '', builder = nn.Linear
+    module: nn.Module,
+    reset_num_classes: int = None,
+    visit_fc_fn: Callable = None,
+    visit_path='',
+    builder=nn.Linear,
 ):
     """Reset the output class num of nn.Linear and return the input feature_dim of nn.Linear.
 
@@ -208,7 +218,8 @@ def _operate_fc_impl(
             remove_all_forward_hooks(module[-1])
 
             if (
-                reset_num_classes is not None
+                reset_num_classes
+                is not None
                 # and reset_num_classes != module[-1].weight.shape[0]
             ):
                 module[-1] = builder(feature_dim, reset_num_classes)
@@ -221,8 +232,14 @@ def _operate_fc_impl(
             # print(visit_path)
             return feature_dim
         else:
-            
-            return _operate_fc_impl(module[-1], reset_num_classes, visit_fc_fn=visit_fc_fn, visit_path=f'{visit_path}.-1', builder=builder)
+
+            return _operate_fc_impl(
+                module[-1],
+                reset_num_classes,
+                visit_fc_fn=visit_fc_fn,
+                visit_path=f'{visit_path}.-1',
+                builder=builder,
+            )
 
     children = list(module.named_children())
     if len(children) == 0:
@@ -235,7 +252,8 @@ def _operate_fc_impl(
         remove_all_forward_hooks(child_module)
 
         if (
-            reset_num_classes is not None
+            reset_num_classes
+            is not None
             # and reset_num_classes != child_module.weight.shape[0]
         ):
             setattr(module, attr_name, builder(feature_dim, reset_num_classes))
@@ -246,14 +264,22 @@ def _operate_fc_impl(
         # print(visit_path)
         return feature_dim
     else:
-        return _operate_fc_impl(child_module, reset_num_classes, visit_fc_fn=visit_fc_fn, visit_path=visit_path, builder=builder)
+        return _operate_fc_impl(
+            child_module,
+            reset_num_classes,
+            visit_fc_fn=visit_fc_fn,
+            visit_path=visit_path,
+            builder=builder,
+        )
 
 
 def operate_fc(
-    module: nn.Module, reset_num_classes: int = None, visit_fc_fn: Callable = None, builder = nn.Linear
+    module: nn.Module,
+    reset_num_classes: int = None,
+    visit_fc_fn: Callable = None,
+    builder=nn.Linear,
 ) -> int:
     return _operate_fc_impl(module, reset_num_classes, visit_fc_fn, builder=builder)
-
 
 
 @register_model('torchvision')
@@ -268,7 +294,7 @@ class TorchvisionClassifierModel(BaseImageClassifier):
         weights=None,
         arch_kwargs={},
         register_last_feature_hook=False,
-        operate_aux=True
+        operate_aux=True,
     ) -> None:
         # weights: None, 'IMAGENET1K_V1', 'IMAGENET1K_V2' or 'DEFAULT'
 
@@ -281,7 +307,7 @@ class TorchvisionClassifierModel(BaseImageClassifier):
             # self._feature_hook = FirstInputHook(m)
             def hook_fn(module, input, output):
                 return output, {HOOK_NAME_FEATURE: input[0]}
-            
+
             # print('hook register')
 
             m.register_forward_hook(hook_fn)
@@ -299,22 +325,15 @@ class TorchvisionClassifierModel(BaseImageClassifier):
             if model.aux_logits:
                 operate_fc(model.AuxLogits, num_classes)
 
-        super().__init__(
-            resolution, feature_dim, num_classes, True
-        )
+        super().__init__(resolution, feature_dim, num_classes, True)
 
         self.model = model
 
     def _forward_impl(self, image: torch.Tensor, *args, **kwargs):
         result = self.model(image)
-        # import torchvision
-        # if isinstance(self.model, torchvision.models.maxvit.MaxVit):
-        #     print(result[1])
-        #     print(self.model.classifier[-1]._forward_hooks)
-        #     exit()
-        
-        return result 
-    
+
+        return result
+
 
 @register_model('timm')
 class TimmClassifierModel(BaseImageClassifier):
@@ -349,10 +368,10 @@ class TimmClassifierModel(BaseImageClassifier):
         #     raise RuntimeError(f'torchvision do not support model {arch_name}')
         # model = factory(weights=weights, **arch_kwargs)
         import timm
+
         model = timm.create_model(arch_name, pretrained=pretrained, **arch_kwargs)
 
         feature_dim = operate_fc(model, num_classes, _output_transform)
-
 
         super().__init__(
             resolution, feature_dim, num_classes, register_last_feature_hook
@@ -412,3 +431,59 @@ class ResNeSt(BaseImageClassifier):
 
     def _forward_impl(self, image: torch.Tensor, *args, **kwargs):
         return self.model(image)
+
+
+def _replace_module_impl(
+    module: nn.Module,
+    replace_mapping,
+    visit_path='',
+):
+    """Reset the output class num of nn.Linear and return the input feature_dim of nn.Linear.
+
+    Args:
+        module (nn.Module): The specific model structure.
+        reset_num_classes (int, optional): The new output class num. Defaults to None.
+
+    Returns:
+        feature_dim (int): The input feature_dim of nn.Linear.
+    """
+
+    if isinstance(module, nn.Sequential):
+
+        for i, child in enumerate(module):
+            if child in replace_mapping:
+                # remove_all_forward_hooks(child)
+                module[i] = replace_mapping[child]
+            else:
+                _replace_module_impl(
+                    child,
+                    replace_mapping,
+                    visit_path=f'{visit_path}.{i}',
+                )
+
+        return
+
+    children = list(module.named_children())
+
+    for attr_name, child_module in children:
+
+        # attr_name, child_module = children[-1]
+        visit_path = f'{visit_path}.{attr_name}'
+        if child_module in replace_mapping:
+            setattr(module, attr_name, replace_mapping[child_module])
+
+            # print(visit_path)
+            # return
+        else:
+            _replace_module_impl(
+                child_module,
+                replace_mapping,
+                visit_path=visit_path,
+            )
+
+
+def replace_module(
+    module: nn.Module,
+    replace_mapping,
+) -> int:
+    return _replace_module_impl(module, replace_mapping)
