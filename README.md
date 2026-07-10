@@ -1,6 +1,6 @@
 # Rank Matters: Understanding and Defending Model Inversion Attacks via Low-Rank Feature Filtering
 
-Accept by KDD 2026.
+Accept by KDD 2026 (Oral).
 
 arXiv: [https://arxiv.org/abs/2410.05814](https://arxiv.org/abs/2410.05814)
 
